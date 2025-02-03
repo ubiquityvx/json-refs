@@ -138,6 +138,21 @@ declare module 'json-refs' {
     export function resolveRefsAt(location: string, options?: JsonRefsOptions): Promise<RetrievedResolvedRefsResults>;
 
     /**
+     * Finds JSON References defined within the provided array/object and resolves them. Extends the
+     * resolveRefs by allowing to process children of the resolved object.
+     * @param obj - The structure to find JSON References within
+     * @param options - The JsonRefs options
+     * @param processChildren - (true) Whether to process children of the resolved object
+     * @returns a promise that resolves a
+     *          {@link ResolvedRefsResults} and rejects with an `Error` when the input arguments fail validation,
+     *          when `options.subDocPath` points to an invalid location or when the location argument points to an unloadable
+     *          resource
+     */
+    export function resolveRefsExtended(obj: any[] | object, options?: JsonRefsOptions, processChildren?: boolean): Promise<ResolvedRefsResults>;
+
+
+    
+    /**
      * The options used for various JsonRefs APIs.
      */
     interface JsonRefsOptions {
