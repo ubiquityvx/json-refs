@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "gulp": "gulp",
-    "test": "gulp test"
+    "test": "gulp test",
+    "dist": "gulp dist"
   },
   "author": {
     "name": "Jeremy Whitlock",
@@ -28,6 +29,9 @@
     "index.d.ts",
     "index.js"
   ],
+  "overrides": {
+    "graceful-fs": "^4.2.11"
+  },
   "types": "./index.d.ts",
   "homepage": "https://github.com/whitlockjc/json-refs",
   "license": "MIT",

@@ -318,7 +318,7 @@ function buildRefModel (document, options, metadata) {
     // Iterate over the references and process
     _.forOwn(refs, function (refDetails, refPtr) {
       var refKey = makeAbsolute(options.location) + refPtr;
-      var refdKey = refDetails.refdId = decodeURIComponent(makeAbsolute(isRemote(refDetails) ?
+      var refdKey = refDetails.refdId = decodeURI(makeAbsolute(isRemote(refDetails) ?
                                                        combineURIs(relativeBase, refDetails.uri) :
                                                        options.location) + '#' +
                                           (refDetails.uri.indexOf('#') > -1 ?
@@ -351,7 +351,7 @@ function buildRefModel (document, options, metadata) {
 
       rOptions.subDocPath = _.isUndefined(refDetails.uriDetails.fragment) ?
                                      [] :
-                                     pathFromPtr(decodeURIComponent(refDetails.uriDetails.fragment));
+                                     pathFromPtr(decodeURI(refDetails.uriDetails.fragment));
 
       // Resolve the reference
       if (isRemote(refDetails)) {
@@ -495,6 +495,9 @@ function validateOptions (options, obj) {
              !isPtr(options.subDocPath)) {
     // If a pointer is provided, throw an error if it's not the proper type
     throw new TypeError('options.subDocPath must be an Array of path segments or a valid JSON Pointer');
+  } else if (!_.isUndefined(options.prorcessChildren) && // Custom option to process children props
+             !_.isBoolean(options.prorcessChildren)) {
+    throw new TypeError('options.prorcessChildren must be a Boolean');
   }
 
   // Default to false for allowing circulars
@@ -612,7 +615,9 @@ function findRefs (obj, options) {
            // Whenever a JSON Reference has extra children, its children should not be processed.
            //   See: http://tools.ietf.org/html/draft-pbryan-zyp-json-ref-03#section-3
            if (getExtraRefKeys(node).length > 0) {
-             processChildren = false;
+             if (!options.processChildren) { // Custom process children if allowExtra is set
+               processChildren = false;
+             }
            }
          }
 
@@ -905,7 +910,7 @@ function resolveRefs (obj, options) {
         var pPtrPath = pathFromPtr(pPtrParts[1]);
 
         _.forOwn(deps, function (dep, prop) {
-          var depParts = splitFragment(dep);
+          var depParts = dep.split('#');
           var dDocument = results.docs[depParts[0]];
           var dPtrPath = pPtrPath.concat(pathFromPtr(prop));
           var refDetails = results.refs[pPtrParts[0] + pathToPtr(dPtrPath)];
@@ -928,7 +933,18 @@ function resolveRefs (obj, options) {
               if (pPtrParts[1] === '' && prop === '#') {
                 results.docs[pPtrParts[0]] = refDetails.value;
               } else {
-                setValue(pDocument, dPtrPath, refDetails.value);
+                // Process Children if processChildren is set
+                if (options.processChildren) { 
+                  const { $ref, ...extra } = refDetails.def;
+                  let val = refDetails.value;
+
+                  if (!Array.isArray(val)) { // Don't add extra values to arrays! It turns them into objects
+                    val = { ...val, ...extra };
+                  }
+                  setValue(pDocument, dPtrPath, val);
+                } else {
+                  setValue(pDocument, dPtrPath, refDetails.value);
+                }
               }
             }
           }
@@ -1097,18 +1113,6 @@ function resolveRefsAt (location, options) {
     });
 
   return allTasks;
-}
-
-// splits a fragment from a URI using the first hash found
-function splitFragment(uri) {
-  var hash = uri.indexOf('#');
-  if (hash < 0) {
-    return [uri];
-  }
-  var parts = [];
-  parts.push(uri.substring(0, hash));
-  parts.push(uri.substring(hash + 1));
-  return parts;
 }
 
 /**
@@ -1389,4 +1393,30 @@ module.exports.resolveRefs = function (obj, options) {
  */
 module.exports.resolveRefsAt = function (location, options) {
   return resolveRefsAt(location, options);
+};
+
+// If processChildren is true, then child refs will be processed. This is an extension to the original library.
+module.exports.resolveRefsExtended = async (source, assetsPath, processChildren = true) => {
+  const processContent = (res, callback) => {
+    // resolve regardless of file suffix
+    callback(undefined, { src: res.text });
+  };
+  const prepareRequest = (realRequest, makeRequest) => {
+    const { url } = realRequest;
+    if (!url.startsWith('http')) {
+      // eslint-disable-next-line no-param-reassign
+      realRequest.url = `${assetsPath}${url}`;
+    }
+    makeRequest(undefined, realRequest);
+  };
+
+  const loaderOptions = { processContent, prepareRequest };
+  const { resolved: metadata, refs } = await resolveRefs(source, { loaderOptions, includeInvalid: false, processChildren });
+  const errors = [];
+  Object.values(refs).forEach(({ error }) => { if (error) errors.push(error); });
+  if (errors.length) {
+    errors.unshift('Unable to resolve #ref(s):');
+    throw new Error(errors.join('\n'));
+  }
+  return metadata;
 };
