@@ -1423,12 +1423,12 @@ module.exports.resolveRefsExtended = async (source, assetsPath, processChildren 
   };
 
   const loaderOptions = { processContent, prepareRequest };
-  const { resolved: metadata, refs } = await resolveRefs(source, { loaderOptions, includeInvalid: false, processChildren });
+  const { resolved, refs } = await resolveRefs(source, { loaderOptions, includeInvalid: false, processChildren });
   const errors = [];
   Object.values(refs).forEach(({ error }) => { if (error) errors.push(error); });
   if (errors.length) {
     errors.unshift('Unable to resolve #ref(s):');
     throw new Error(errors.join('\n'));
   }
-  return metadata;
+  return { resolved, refs };
 };
