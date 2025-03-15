@@ -21,15 +21,21 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
-
 'use strict';
+
+
+// Check if we are in a browser environment
+function isBrowser() {
+  return typeof window !== 'undefined' && typeof window.document !== 'undefined';
+}
+
+// If it's not a browser environment, throw an error
+if (!isBrowser()) {
+  throw new Error('This library is designed to run in a browser environment.');
+}
 
 var _ = require('lodash');
 var gl = require('graphlib');
-var path = require('path');
-var PathLoader = require('path-loader');
-var qs = require('querystring');
-var slash = require('slash');
 var URI = require('uri-js');
 
 var badPtrTokenRegex = /~(?:[^01]|$)/g;
@@ -39,37 +45,27 @@ var remoteUriTypes = ['absolute', 'uri'];
 var uriDetailsCache = {};
 
 // Load promises polyfill if necessary
-/* istanbul ignore if */
-if (typeof Promise === 'undefined') {
-  require('native-promise-only');
-}
 
 /* Internal Functions */
 
-function combineQueryParams (qs1, qs2) {
+function combineQueryParams(qs1, qs2) {
   var combined = {};
+  const urlSearchParams1 = new URLSearchParams(qs1 || '');
+  const urlSearchParams2 = new URLSearchParams(qs2 || '');
 
-  function mergeQueryParams (obj) {
-    _.forOwn(obj, function (val, key) {
-      combined[key] = val;
-    });
-  }
-
-  mergeQueryParams(qs.parse(qs1 || ''));
-  mergeQueryParams(qs.parse(qs2 || ''));
-
-  return Object.keys(combined).length === 0 ? undefined : qs.stringify(combined);
+  urlSearchParams1.forEach((value, key) => {
+    combined[key] = value;
+  });
+  urlSearchParams2.forEach((value, key) => {
+    combined[key] = value;
+  });
+  const searchParams = new URLSearchParams(combined)
+  return searchParams.toString().length === 0
+    ? undefined
+    : searchParams.toString();
 }
 
 function combineURIs (u1, u2) {
-  // Convert Windows paths
-  if (_.isString(u1)) {
-    u1 = slash(u1);
-  }
-
-  if (_.isString(u2)) {
-    u2 = slash(u2);
-  }
 
   var u2Details = parseURI(_.isUndefined(u2) ? '' : u2);
   var u1Details;
@@ -84,7 +80,11 @@ function combineURIs (u1, u2) {
       combinedDetails = u1Details;
 
       // Join the paths
-      combinedDetails.path = slash(path.join(u1Details.path, u2Details.path));
+      if (u2Details.path.startsWith('/')) {
+        combinedDetails.path = u2Details.path;
+      } else {
+        combinedDetails.path = (u1Details.path.endsWith('/') ? u1Details.path : u1Details.path + '/') + u2Details.path;
+      }
 
       // Join query parameters
       combinedDetails.query = combineQueryParams(u1Details.query, u2Details.query);
@@ -177,11 +177,11 @@ function getRemoteDocument (url, options) {
     // If there is no content processor, default to processing the raw response as JSON
     if (_.isUndefined(loaderOptions.processContent)) {
       loaderOptions.processContent = function (res, callback) {
-        callback(undefined, JSON.parse(res.text));
+        callback(undefined, JSON.parse(res.src));
       };
     }
 
-    // Attempt to load the resource using path-loader
+    const PathLoader = require('path-loader');
     allTasks = PathLoader.load(decodeURI(url), loaderOptions);
 
     // Update the cache
@@ -240,9 +240,10 @@ function isRefLike (obj, throwWithDetails) {
 }
 
 function makeAbsolute (location) {
-  if (location.indexOf('://') === -1 && !path.isAbsolute(location)) {
-    return path.resolve(process.cwd(), location);
-  } else {
+    // Check if the location starts with a protocol (e.g., "http://", "file://")
+  if (!location.match(/^[a-z]+:\/\//)) {
+        return (location.startsWith('./') ? '' : './') + location
+  } else { 
     return location;
   }
 }
@@ -274,7 +275,7 @@ function makeSubDocPath (options) {
   var subDocPath;
 
   if (_.isArray(options.subDocPath)) {
-    subDocPath = options.subDocPath;
+      subDocPath = options.subDocPath;
   } else if (_.isString(options.subDocPath)) {
     subDocPath = pathFromPtr(options.subDocPath);
   } else if (_.isUndefined(options.subDocPath)) {
@@ -298,7 +299,7 @@ function buildRefModel (document, options, metadata) {
   var allTasks = Promise.resolve();
   var subDocPtr = pathToPtr(options.subDocPath);
   var absLocation = makeAbsolute(options.location);
-  var relativeBase = path.dirname(options.location);
+  var relativeBase = options.location.substring(0, options.location.lastIndexOf('/') + 1);
   var docDepKey = absLocation + subDocPtr;
   var refs;
   var rOptions;
@@ -316,7 +317,10 @@ function buildRefModel (document, options, metadata) {
     refs = findRefs(document, options);
 
     // Iterate over the references and process
-    _.forOwn(refs, function (refDetails, refPtr) {
+    Object.keys(refs).forEach(function (refPtr) {
+      
+      var refDetails = refs[refPtr];
+
       var refKey = makeAbsolute(options.location) + refPtr;
       var refdKey = refDetails.refdId = decodeURI(makeAbsolute(isRemote(refDetails) ?
                                                        combineURIs(relativeBase, refDetails.uri) :
@@ -423,7 +427,7 @@ function setValue (obj, refPath, value) {
 }
 
 function walk (ancestors, node, path, fn) {
-  var processChildren = true;
+    var processChildren = true;
 
   function walkItem (item, segment) {
     path.push(segment);
@@ -446,9 +450,10 @@ function walk (ancestors, node, path, fn) {
           walkItem(member, index.toString());
         });
       } else if (_.isObject(node)) {
-        _.forOwn(node, function (cNode, key) {
-          walkItem(cNode, key);
-        });
+        Object.keys(node).forEach(function (key) {
+            var cNode = node[key];
+            walkItem(cNode, key);
+        })
       }
     }
 
@@ -848,11 +853,12 @@ function resolveRefs (obj, options) {
       circularPaths = gl.alg.findCycles(depGraph);
 
       // Create a unique list of circulars
-      circularPaths.forEach(function (path) {
-        path.forEach(function (seg) {
-          if (circulars.indexOf(seg) === -1) {
-            circulars.push(seg);
-          }
+      circularPaths.forEach(function (cPath) {
+        cPath.forEach(function (seg) {
+            if (circulars.indexOf(seg) === -1) {
+              circulars.push(seg);
+            }
+
         });
       });
 
@@ -903,14 +909,14 @@ function resolveRefs (obj, options) {
       });
 
       // Resolve the references in reverse order since the current order is top-down
-      _.forOwn(Object.keys(results.deps).reverse(), function (parentPtr) {
+      Object.keys(results.deps).reverse().forEach(function (parentPtr) {
         var deps = results.deps[parentPtr];
         var pPtrParts = parentPtr.split('#');
         var pDocument = results.docs[pPtrParts[0]];
         var pPtrPath = pathFromPtr(pPtrParts[1]);
 
-        _.forOwn(deps, function (dep, prop) {
-          var depParts = dep.split('#');
+        Object.keys(deps).forEach(function (prop) {
+          var depParts = deps[prop].split('#');
           var dDocument = results.docs[depParts[0]];
           var dPtrPath = pPtrPath.concat(pathFromPtr(prop));
           var refDetails = results.refs[pPtrParts[0] + pathToPtr(dPtrPath)];
@@ -933,7 +939,10 @@ function resolveRefs (obj, options) {
               if (pPtrParts[1] === '' && prop === '#') {
                 results.docs[pPtrParts[0]] = refDetails.value;
               } else {
-                // Process Children if processChildren is set
+                  // Process Children if processChildren is set
+                  if (!refDetails.def) {
+                    throw new Error('refDetails.def is undefined')
+                  }
                 if (options.processChildren) { 
                   const { $ref, ...extra } = refDetails.def;
                   let val = refDetails.value;
@@ -948,7 +957,7 @@ function resolveRefs (obj, options) {
               }
             }
           }
-        });
+        })
       });
 
       function walkRefs (root, refPtr, refPath) {
@@ -1051,7 +1060,8 @@ function resolveRefs (obj, options) {
 
       // Sanitize the reference details
       _.forOwn(allRefs, function (refDetails, refPtr) {
-        // Delete the reference id used for dependency tracking and circular identification
+          // Delete the reference id used for dependency tracking and circular identification
+          if (!refDetails) return
         delete refDetails.refdId;
 
         // For locally-circular references, update the $ref to be fully qualified (Issue #175)
