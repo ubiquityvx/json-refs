@@ -834,7 +834,9 @@ function resolveRefs (obj, options) {
       var depGraph = new gl.Graph();
       var fullLocation = makeAbsolute(options.location);
       var refsRoot = fullLocation + pathToPtr(options.subDocPath);
-      var relativeBase = path.dirname(fullLocation);
+      // Calculate the directory part of the location for browser compatibility
+      var relativeBase = fullLocation.lastIndexOf('/') > -1 ? fullLocation.substring(0, fullLocation.lastIndexOf('/')) : '';
+
 
       // Identify circulars
 
