@@ -4,7 +4,9 @@ This is a customization of the `json-refs` package with a new function:
 resolveRefsExtended(obj: any[] | object, options?: JsonRefsOptions, processChildren?: boolean): Promise<ResolvedRefsResults>;
 ```
 
-It lets us use `#ref` tags in a json documen similar to how they work with json-schema.
+It lets us use `#ref` tags in a json document similar to how they work with json-schema.
+
+I also made some modifications that it can run either in the browser or in node. The node-only version has its own branch.
 
 ## Documentation
 
