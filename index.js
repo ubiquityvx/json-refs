@@ -31,7 +31,7 @@ function isBrowser() {
 
 // If it's not a browser environment, throw an error
 if (!isBrowser()) {
-  throw new Error('This library is designed to run in a browser environment.');
+  // throw new Error('This library is designed to run in a browser environment.');
 }
 
 var _ = require('lodash');
